@@ -1,0 +1,344 @@
+#include <LiquidCrystal.h> //Import the LCD library
+//Include^
+//Init
+LiquidCrystal lcd(11, 12, 5, 4, 3, 2); /*Initialize the LCD and
+                                        tell it which pins is
+                                        to be used for communicating*/
+int h;
+float t;                                        
+
+//Global Var
+#define contra 9 //Define the pin that controls the contrast of the screen
+#define bri 10 //Define the pin the controls the brightness of the screen
+//Both pins are PWM so you can analogWrite to them and have them output a variable value
+
+
+int pulsePin = A1;                 // Pulse Sensor purple wire connected to analog pin A0
+int blinkPin = 13;                // pin to blink led at each beat
+
+// Volatile Variables, used in the interrupt service routine!
+volatile float BPM;                   // int that holds raw Analog in 0. updated every 2mS
+volatile int Signal;                // holds the incoming raw data
+volatile int IBI = 600;             // int that holds the time interval between beats! Must be seeded! 
+volatile boolean Pulse = false;     // "True" when User's live heartbeat is detected. "False" when not a "live beat". 
+volatile boolean QS = false;        // becomes true when Arduoino finds a beat.
+
+static boolean serialVisual = true;   // Set to 'false' by Default.  Re-set to 'true' to see Arduino Serial Monitor ASCII Visual Pulse 
+
+volatile int rate[10];                      // array to hold last ten IBI values
+volatile unsigned long sampleCounter = 0;          // used to determine pulse timing
+volatile unsigned long lastBeatTime = 0;           // used to find IBI
+volatile int P = 512;                      // used to find peak in pulse wave, seeded
+volatile int T = 512;                     // used to find trough in pulse wave, seeded
+volatile int thresh = 525;                // used to find instant moment of heart beat, seeded
+volatile int amp = 100;                   // used to hold amplitude of pulse waveform, seeded
+volatile boolean firstBeat = true;        // used to seed rate array so we startup with reasonable BPM
+volatile boolean secondBeat = false;      // used to seed rate array so we startup with reasonable BPM
+float temp;
+#include<Wire.h>
+int c[200];
+int count=0;
+float x;
+const unsigned long eventTime_1_LDR = 200;
+unsigned long previousTime_1 = 0;
+const int MPU_addr=0x68;  // I2C address of the MPU-6050
+int16_t AcX,AcY,AcZ,Tmp,GyX,GyY,GyZ;
+
+void setup() {
+    Wire.begin();
+  Wire.beginTransmission(MPU_addr);
+  Wire.write(0x6B);  // PWR_MGMT_1 register
+  Wire.write(0);     // set to zero (wakes up the MPU-6050)
+  Wire.endTransmission(true);
+  pinMode(blinkPin,OUTPUT);         // pin that will blink to your heartbeat!
+  Serial.begin(115200);             // we agree to talk fast!
+  interruptSetup(); // sets up to read Pulse Sensor signal every 2mS 
+  lcd.begin(16, 2); //Tell the LCD that it is a 16x2 LCD
+  pinMode(contra, OUTPUT); //set pin 9 to OUTPUT
+  pinMode(bri, OUTPUT); //Set pin 10 to OUTPUT
+  //pinMode-ing OUTPUT makes the specified pin output power
+  analogWrite(contra,100); /*outputs no power to the contrast pin.this lets you see the words*/
+  analogWrite(bri, 255); //Outputs full power to the screen brightness LED
+  // lcdd();
+  
+    /*
+   lcd.setCursor(0,0);
+   lcd.print("Temp:");
+   lcd.setCursor(6,0);
+   lcd.print(t);
+   Serial.println("2");
+   lcd.setCursor(10,0);
+   lcd.print("HB:");
+  //lcd.setCursor(14,0);
+  //lcd.print(h);
+   lcd.setCursor(0,1);
+   lcd.print("Fall Det:N");
+   delay(10000);
+   lcd.setCursor(0, 0);*/
+}
+
+void loop() {
+  Serial.println("ENTERED");
+ 
+    unsigned long currentTime = millis();
+  Wire.beginTransmission(MPU_addr);
+  Wire.write(0x3B);  // starting with register 0x3B (ACCEL_XOUT_H)
+  Wire.endTransmission(false);
+  Wire.requestFrom(MPU_addr,14,true);  // request a total of 14 registers
+  AcX=Wire.read()<<8|Wire.read();  // 0x3B (ACCEL_XOUT_H) & 0x3C (ACCEL_XOUT_L)   
+  AcY=Wire.read()<<8|Wire.read();  // 0x3D (ACCEL_YOUT_H) & 0x3E (ACCEL_YOUT_L)
+  AcZ=Wire.read()<<8|Wire.read();  // 0x3F (ACCEL_ZOUT_H) & 0x40 (ACCEL_ZOUT_L)
+  Tmp=Wire.read()<<8|Wire.read();  // 0x41 (TEMP_OUT_H) & 0x42 (TEMP_OUT_L)
+  GyX=Wire.read()<<8|Wire.read();  // 0x43 (GYRO_XOUT_H) & 0x44 (GYRO_XOUT_L)
+  GyY=Wire.read()<<8|Wire.read();  // 0x45 (GYRO_YOUT_H) & 0x46 (GYRO_YOUT_L)
+  GyZ=Wire.read()<<8|Wire.read();  // 0x47 (GYRO_ZOUT_H) & 0x48 (GYRO_ZOUT_L)
+  Serial.print("AcX = "); Serial.print(AcX);
+  Serial.print(" | AcY = "); Serial.print(AcY);
+  Serial.print(" | AcZ = "); Serial.print(AcZ);
+  Serial.print(" | Tmp = "); Serial.print(Tmp/340.00+36.53);  //equation for temperature in degrees C from datasheet
+  Serial.print(" | GyX = "); Serial.print(GyX);
+  Serial.print(" | GyY = "); Serial.print(GyY);
+  Serial.print(" | GyZ = "); Serial.println(GyZ);
+
+  c[count]=AcZ;
+  x=(c[count]-c[count-1]);
+  Serial.println(count);
+  Serial.println(c[count]);
+  Serial.println(c[count-1]);
+  Serial.println(x);
+  if ((x >=12000) or (c[count]==-1)) {
+   lcd.setCursor(0,1);
+   lcd.print("Fall Det:");
+   lcd.setCursor(9,1);
+   lcd.print("Y");
+  
+   
+    Serial.println();
+    Serial.write('L');
+    Serial.println();
+  }
+  else{
+      lcd.setCursor(0,1);
+   lcd.print("Fall Det:");
+   lcd.setCursor(9,1);
+   lcd.print("N");
+  }
+  
+  if (count>200){
+    
+    count=0;
+  }
+  count=count+1;
+ 
+  delay(100);
+  
+   serialOutput();  
+   
+  if (QS == true) // A Heartbeat Was Found
+    {     
+      // BPM and IBI have been Determined
+      // Quantified Self "QS" true when arduino finds a heartbeat
+      serialOutputWhenBeatHappens(); // A Beat Happened, Output that to serial.     
+      QS = false; // reset the Quantified Self flag for next time    
+    }
+     
+  delay(20); //  take a break
+  temp=analogRead(A0);
+  float mv=(temp/1024.0)*6300;
+  float celsius=mv/10;
+  Serial.print("Temperature: "); 
+  Serial.print(celsius);
+  t=celsius;
+ 
+  lcd.setCursor(0,0);
+   lcd.print("Tem:");
+   lcd.setCursor(4,0);
+   lcd.print(t);
+  
+   Serial.println("2");
+   
+  Serial.println(); 
+  delay(1000);
+
+  Serial.println("1");
+ /*lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Temp:");
+  lcd.setCursor(6,0);
+  lcd.print(t);
+  Serial.println("2");
+  lcd.setCursor(10,0);
+  lcd.print("HB:");
+  lcd.setCursor(0,1);
+  lcd.print("Fall Det:N");
+  delay(10000);
+  lcd.setCursor(0, 0);*/
+  
+}
+void interruptSetup()
+{     
+  // Initializes Timer2 to throw an interrupt every 2mS.
+  TCCR2A = 0x02;     // DISABLE PWM ON DIGITAL PINS 3 AND 11, AND GO INTO CTC MODE
+  TCCR2B = 0x06;     // DON'T FORCE COMPARE, 256 PRESCALER 
+  OCR2A = 0X7C;      // SET THE TOP OF THE COUNT TO 124 FOR 500Hz SAMPLE RATE
+  TIMSK2 = 0x02;     // ENABLE INTERRUPT ON MATCH BETWEEN TIMER2 AND OCR2A
+  sei();             // MAKE SURE GLOBAL INTERRUPTS ARE ENABLED      
+} 
+
+void serialOutput()
+{   // Decide How To Output Serial. 
+ if (serialVisual == true)
+  {  
+     arduinoSerialMonitorVisual('-', Signal);   // goes to function that makes Serial Monitor Visualizer
+  } 
+ else
+  {
+      sendDataToSerial('S', Signal);     // goes to sendDataToSerial function
+   }        
+}
+
+void serialOutputWhenBeatHappens()
+{    
+ if (serialVisual == true) //  Code to Make the Serial Monitor Visualizer Work
+   {            
+     Serial.print(" Heart-Beat Found ");  //ASCII Art Madness
+     Serial.print("BPM: ");
+     Serial.println(BPM);
+     lcd.setCursor(10,0);
+   lcd.print("HB:");
+  lcd.setCursor(13,0);
+  lcd.print(BPM);
+  delay(1000);
+  
+  
+   }
+ else
+   {
+     sendDataToSerial('B',BPM);   // send heart rate with a 'B' prefix
+     sendDataToSerial('Q',IBI);   // send time between beats with a 'Q' prefix
+   }   
+}
+
+void arduinoSerialMonitorVisual(char symbol, int data )
+{    
+  const int sensorMin = 0;      // sensor minimum, discovered through experiment
+  const int sensorMax = 1024;    // sensor maximum, discovered through experiment
+  int sensorReading = data; // map the sensor range to a range of 12 options:
+  int range = map(sensorReading, sensorMin, sensorMax, 0, 11);
+  // do something different depending on the 
+  // range value:
+}
+
+
+void sendDataToSerial(char symbol, int data )
+{
+   Serial.print(symbol);
+   Serial.println(data);                
+}
+
+ISR(TIMER2_COMPA_vect) //triggered when Timer2 counts to 124
+{  
+  cli();                                      // disable interrupts while we do this
+  Signal = analogRead(pulsePin);              // read the Pulse Sensor 
+  sampleCounter += 2;                         // keep track of the time in mS with this variable
+  int N = sampleCounter - lastBeatTime;       // monitor the time since the last beat to avoid noise
+                                              //  find the peak and trough of the pulse wave
+  if(Signal < thresh && N > (IBI/5)*3) // avoid dichrotic noise by waiting 3/5 of last IBI
+    {      
+      if (Signal < T) // T is the trough
+      {                        
+        T = Signal; // keep track of lowest point in pulse wave 
+      }
+    }
+
+  if(Signal > thresh && Signal > P)
+    {          // thresh condition helps avoid noise
+      P = Signal;                             // P is the peak
+    }                                        // keep track of highest point in pulse wave
+
+  //  NOW IT'S TIME TO LOOK FOR THE HEART BEAT
+  // signal surges up in value every time there is a pulse
+  if (N > 250)
+  {                                   // avoid high frequency noise
+    if ( (Signal > thresh) && (Pulse == false) && (N > (IBI/5)*3) )
+      {        
+        Pulse = true;                               // set the Pulse flag when we think there is a pulse
+        digitalWrite(blinkPin,HIGH);                // turn on pin 13 LED
+        IBI = sampleCounter - lastBeatTime;         // measure time between beats in mS
+        lastBeatTime = sampleCounter;               // keep track of time for next pulse
+  
+        if(secondBeat)
+        {                        // if this is the second beat, if secondBeat == TRUE
+          secondBeat = false;                  // clear secondBeat flag
+          for(int i=0; i<=9; i++) // seed the running total to get a realisitic BPM at startup
+          {             
+            rate[i] = IBI;                      
+          }
+        }
+  
+        if(firstBeat) // if it's the first time we found a beat, if firstBeat == TRUE
+        {                         
+          firstBeat = false;                   // clear firstBeat flag
+          secondBeat = true;                   // set the second beat flag
+          sei();                               // enable interrupts again
+          return;                              // IBI value is unreliable so discard it
+        }   
+      // keep a running total of the last 10 IBI values
+      word runningTotal = 0;                  // clear the runningTotal variable    
+
+      for(int i=0; i<=8; i++)
+        {                // shift data in the rate array
+          rate[i] = rate[i+1];                  // and drop the oldest IBI value 
+          runningTotal += rate[i];              // add up the 9 oldest IBI values
+        }
+
+      rate[9] = IBI;                          // add the latest IBI to the rate array
+      runningTotal += rate[9];                // add the latest IBI to runningTotal
+      runningTotal /= 10;                     // average the last 10 IBI values 
+      BPM = 60000/runningTotal;               // how many beats can fit into a minute? that's BPM!
+      QS = true;                              // set Quantified Self flag 
+      // QS FLAG IS NOT CLEARED INSIDE THIS ISR
+    }                       
+  }
+
+  if (Signal < thresh && Pulse == true)
+    {   // when the values are going down, the beat is over
+      digitalWrite(blinkPin,LOW);            // turn off pin 13 LED
+      Pulse = false;                         // reset the Pulse flag so we can do it again
+      amp = P - T;                           // get amplitude of the pulse wave
+      thresh = amp/2 + T;                    // set thresh at 50% of the amplitude
+      P = thresh;                            // reset these for next time
+      T = thresh;
+    }
+
+  if (N > 2500)
+    {                           // if 2.5 seconds go by without a beat
+      thresh = 512;                          // set thresh default
+      P = 512;                               // set P default
+      T = 512;                               // set T default
+      lastBeatTime = sampleCounter;          // bring the lastBeatTime up to date        
+      firstBeat = true;                      // set these to avoid noise
+      secondBeat = false;                    // when we get the heartbeat back
+    }
+
+  sei();                                   // enable interrupts when youre done!
+
+}// end isr
+
+void lcdd(){
+  lcd.clear();
+    lcd.setCursor(0,0);
+   lcd.print("Temp:");
+   lcd.setCursor(6,0);
+   lcd.print(t);
+   Serial.println("2");
+   lcd.setCursor(10,0);
+   lcd.print("HB:");
+  //lcd.setCursor(14,0);
+  //lcd.print(h);
+   lcd.setCursor(0,1);
+   lcd.print("Fall Det:N");
+   delay(10000);
+   lcd.setCursor(0, 0);
+  
+}
